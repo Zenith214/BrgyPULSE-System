@@ -1,6 +1,6 @@
 "use client"
 
-import * as React from "react"
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react"
 import { CheckCircle, XCircle, AlertCircle, X } from "lucide-react"
 
 export interface ToastProps {
@@ -19,10 +19,10 @@ interface ToastContextType {
   removeToast: (id: string) => void
 }
 
-const ToastContext = React.createContext<ToastContextType | undefined>(undefined)
+const ToastContext = createContext<ToastContextType | undefined>(undefined)
 
 export function useToast() {
-  const context = React.useContext(ToastContext)
+  const context = useContext(ToastContext)
   if (!context) {
     // During SSR/build, return no-op functions instead of throwing
     if (typeof window === 'undefined') {
@@ -38,15 +38,15 @@ export function useToast() {
   return context
 }
 
-export function ToastProvider({ children }: { children: React.ReactNode }) {
+export function ToastProvider({ children }: { children: ReactNode }) {
   // Always call hooks at top level - Rules of Hooks
-  const [toasts, setToasts] = React.useState<ToastProps[]>([])
+  const [toasts, setToasts] = useState<ToastProps[]>([])
 
-  const removeToast = React.useCallback((id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(toast => toast.id !== id))
   }, [])
 
-  const addToast = React.useCallback((toast: Omit<ToastProps, "id">) => {
+  const addToast = useCallback((toast: Omit<ToastProps, "id">) => {
     const id = Math.random().toString(36).substr(2, 9)
     const newToast = { ...toast, id }
     
@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     }
   }, [removeToast])
 
-  const contextValue = React.useMemo(() => ({
+  const contextValue = useMemo(() => ({
     toasts,
     addToast,
     toast: addToast, // Alias for compatibility
