@@ -31,6 +31,22 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  // Safety check for SSR/build time
+  if (typeof window === 'undefined') {
+    return (
+      <AuthContext.Provider value={{
+        user: null,
+        isLoading: true,
+        isAuthenticated: false,
+        login: async () => ({ success: false }),
+        logout: async () => {},
+        refreshUser: async () => {},
+      }}>
+        {children}
+      </AuthContext.Provider>
+    );
+  }
+
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 

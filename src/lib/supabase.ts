@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 // Supabase configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -7,31 +7,48 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 // Validate required environment variables at runtime (not build time)
 function validateSupabaseConfig() {
+  const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build' || 
+                      (typeof window === 'undefined' && !supabaseUrl);
+  
   if (!supabaseUrl || !supabaseAnonKey) {
-    // During build time, we don't need actual credentials
-    if (process.env.NODE_ENV === 'production' && typeof window === 'undefined') {
+    if (isBuildTime) {
       console.warn('Supabase credentials not found during build. This is expected.')
+      return false;
+    } else if (typeof window !== 'undefined') {
+      console.error('Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY')
     }
   }
+  return true;
 }
 
+// Create placeholder client for build time
+const placeholderClient = {
+  from: () => ({
+    select: () => Promise.resolve({ data: null, error: new Error('Supabase not initialized') }),
+    insert: () => Promise.resolve({ data: null, error: new Error('Supabase not initialized') }),
+    update: () => Promise.resolve({ data: null, error: new Error('Supabase not initialized') }),
+    delete: () => Promise.resolve({ data: null, error: new Error('Supabase not initialized') }),
+  }),
+  auth: {
+    signIn: () => Promise.resolve({ data: null, error: new Error('Supabase not initialized') }),
+  }
+} as any;
+
 // Client-side Supabase client
-export const supabase = supabaseUrl && supabaseAnonKey 
+const isConfigValid = validateSupabaseConfig();
+export const supabase = (isConfigValid && supabaseUrl && supabaseAnonKey)
   ? createClient(supabaseUrl, supabaseAnonKey)
-  : createClient('https://placeholder.supabase.co', 'placeholder-key')
+  : placeholderClient;
 
 // Server-side Supabase client with service role key (for admin operations)
-export const supabaseAdmin = supabaseServiceKey && supabaseUrl
+export const supabaseAdmin = (isConfigValid && supabaseServiceKey && supabaseUrl)
   ? createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
       }
     })
-  : supabase // Fallback to regular client
-
-// Run validation
-validateSupabaseConfig()
+  : placeholderClient;
 
 // Database types (will be generated after migration)
 export type Database = {

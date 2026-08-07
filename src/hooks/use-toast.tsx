@@ -24,6 +24,15 @@ const ToastContext = React.createContext<ToastContextType | undefined>(undefined
 export function useToast() {
   const context = React.useContext(ToastContext)
   if (!context) {
+    // During SSR/build, return no-op functions instead of throwing
+    if (typeof window === 'undefined') {
+      return {
+        toasts: [],
+        addToast: () => {},
+        toast: () => {},
+        removeToast: () => {},
+      }
+    }
     throw new Error("useToast must be used within a ToastProvider")
   }
   return context

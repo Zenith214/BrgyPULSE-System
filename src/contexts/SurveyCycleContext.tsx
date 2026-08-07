@@ -28,6 +28,23 @@ interface SurveyCycleProviderProps {
 }
 
 export function SurveyCycleProvider({ children }: SurveyCycleProviderProps) {
+  // Safety check for SSR/build time
+  if (typeof window === 'undefined') {
+    return (
+      <SurveyCycleContext.Provider value={{
+        activeCycle: null,
+        allCycles: [],
+        loading: true,
+        error: null,
+        refreshActiveCycle: async () => {},
+        refreshAllCycles: async () => {},
+        setActiveCycle: async () => {},
+      }}>
+        {children}
+      </SurveyCycleContext.Provider>
+    );
+  }
+
   const [activeCycle, setActiveCycleState] = useState<SurveyCycle | null>(null);
   const [allCycles, setAllCycles] = useState<SurveyCycle[]>([]);
   const [loading, setLoading] = useState(true);
