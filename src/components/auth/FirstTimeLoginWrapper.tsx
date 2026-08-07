@@ -10,17 +10,16 @@ interface FirstTimeLoginWrapperProps {
 }
 
 export default function FirstTimeLoginWrapper({ children }: FirstTimeLoginWrapperProps) {
-  // SSR guard - hooks used by useAuth
-  if (typeof window === 'undefined') {
-    return <>{children}</>;
-  }
-
+  // Always call hooks - Rules of Hooks
   const { user, refreshUser } = useAuth();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [startTour, setStartTour] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
+    // Skip on SSR
+    if (typeof window === 'undefined') return;
+    
     // Check if user is first-time login
     if (user && !hasChecked) {
       setHasChecked(true);

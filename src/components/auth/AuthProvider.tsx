@@ -31,29 +31,15 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  // Safety check for SSR/build time
-  if (typeof window === 'undefined') {
-    return (
-      <AuthContext.Provider value={{
-        user: null,
-        isLoading: true,
-        isAuthenticated: false,
-        login: async () => ({ success: false }),
-        logout: async () => {},
-        refreshUser: async () => {},
-      }}>
-        {children}
-      </AuthContext.Provider>
-    );
-  }
-
+  // Always call hooks at top level - Rules of Hooks
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Setup inactivity timeout - only active when user is authenticated
+  // Pass disabled flag for SSR instead of conditional hook call
   useInactivityTimeout({
     timeoutMinutes: 10,
-    enabled: !!user,
+    enabled: typeof window !== 'undefined' && !!user,
     onTimeout: () => {
       console.log('User logged out due to inactivity');
       setUser(null);
@@ -101,6 +87,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
+    // Skip on SSR
+    if (typeof window === 'undefined') return;
+    
     // Check authentication status on mount
     const checkAuth = async () => {
       try {

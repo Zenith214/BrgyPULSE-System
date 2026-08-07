@@ -28,23 +28,7 @@ interface SurveyCycleProviderProps {
 }
 
 export function SurveyCycleProvider({ children }: SurveyCycleProviderProps) {
-  // Safety check for SSR/build time
-  if (typeof window === 'undefined') {
-    return (
-      <SurveyCycleContext.Provider value={{
-        activeCycle: null,
-        allCycles: [],
-        loading: true,
-        error: null,
-        refreshActiveCycle: async () => {},
-        refreshAllCycles: async () => {},
-        setActiveCycle: async () => {},
-      }}>
-        {children}
-      </SurveyCycleContext.Provider>
-    );
-  }
-
+  // Always call hooks at top level - Rules of Hooks
   const [activeCycle, setActiveCycleState] = useState<SurveyCycle | null>(null);
   const [allCycles, setAllCycles] = useState<SurveyCycle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +124,9 @@ export function SurveyCycleProvider({ children }: SurveyCycleProviderProps) {
 
   // Initial data loading
   useEffect(() => {
+    // Skip on SSR
+    if (typeof window === 'undefined') return;
+    
     const loadInitialData = async () => {
       setLoading(true);
       try {
