@@ -4,6 +4,11 @@ import { useEffect, useState } from 'react';
 import { register } from '@/lib/serviceWorkerRegistration';
 
 export function ServiceWorkerRegistration() {
+  // SSR guard
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

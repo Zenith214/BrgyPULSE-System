@@ -7,11 +7,14 @@ import { useState, useEffect } from 'react';
  * Returns true when online, false when offline
  */
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(true);
+  // SSR guard - default to online during build
+  const [isOnline, setIsOnline] = useState(typeof window === 'undefined' ? true : navigator.onLine);
 
   useEffect(() => {
     // Set initial status
-    setIsOnline(navigator.onLine);
+    if (typeof window !== 'undefined') {
+      setIsOnline(navigator.onLine);
+    }
 
     // Handle online event
     const handleOnline = () => {

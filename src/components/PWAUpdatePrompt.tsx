@@ -4,6 +4,11 @@ import { useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 
 export function PWAUpdatePrompt() {
+  // SSR guard
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
   const [showPrompt, setShowPrompt] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
 

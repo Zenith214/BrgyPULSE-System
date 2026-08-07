@@ -9,6 +9,11 @@ import { WifiOff, Wifi } from 'lucide-react';
  * Displays a banner when the user is offline and a notification when back online
  */
 export function OfflineIndicator() {
+  // SSR guard
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
   const isOnline = useOnlineStatus();
   const [showOnlineNotification, setShowOnlineNotification] = useState(false);
   const [wasOffline, setWasOffline] = useState(false);
