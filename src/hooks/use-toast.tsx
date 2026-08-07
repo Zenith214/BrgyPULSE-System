@@ -30,6 +30,11 @@ export function useToast() {
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  // Safety check for SSR/build time
+  if (typeof window === 'undefined') {
+    return <>{children}</>
+  }
+
   const [toasts, setToasts] = React.useState<ToastProps[]>([])
 
   const removeToast = React.useCallback((id: string) => {
