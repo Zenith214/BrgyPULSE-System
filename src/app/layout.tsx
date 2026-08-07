@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClientProviders } from "@/components/providers/ClientProviders";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import FirstTimeLoginWrapper from "@/components/auth/FirstTimeLoginWrapper";
+import { SurveyCycleProvider } from "@/contexts/SurveyCycleContext";
+import { ToastProviderWrapper } from "@/components/providers/ToastProviderWrapper";
+import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
+import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 import "./globals.css";
 import "../styles/intro-custom.css";
 import "intro.js/introjs.css";
@@ -56,9 +62,18 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClientProviders>
-          {children}
-        </ClientProviders>
+        <ToastProviderWrapper>
+          <AuthProvider>
+            <SurveyCycleProvider>
+              <ServiceWorkerRegistration />
+              <PWAUpdatePrompt />
+              <OfflineIndicator />
+              <FirstTimeLoginWrapper>
+                {children}
+              </FirstTimeLoginWrapper>
+            </SurveyCycleProvider>
+          </AuthProvider>
+        </ToastProviderWrapper>
       </body>
     </html>
   );
