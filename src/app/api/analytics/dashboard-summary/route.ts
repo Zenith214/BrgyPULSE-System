@@ -10,8 +10,12 @@ const pool = new Pool({
 // Helper function to calculate need for action from binary questions
 async function calculateBarangayNeedForAction(client: any, barangayId: number, cycleId: number): Promise<number> {
   // Get all survey sections for this barangay
+  // NOTE: sr.response_id MUST be in the SELECT list — it is used below to track
+  // unique respondents in the Set. Without it, row.response_id === undefined and
+  // respondentsWithNeed.size never exceeds 1.
   const query = `
     SELECT 
+      sr.response_id,
       ss.section_key,
       ss.data
     FROM survey_response sr
@@ -164,8 +168,10 @@ export async function GET(request: NextRequest) {
     let totalSatisfaction = 0
     let totalNeedForAction = 0
     
-    // Minimum sample size for statistical validity (at least 30 responses recommended)
-    const MIN_SAMPLE_SIZE = 30
+    // Minimum sample size — set to 1 so barangays with any responses are included.
+    // The old value of 30 caused the entire scores array to be empty for early-cycle
+    // data, returning 0% for both satisfaction and NFA on the dashboard.
+    const MIN_SAMPLE_SIZE = 1
     
     for (const barangay of barangays) {
       // Get response count for this barangay

@@ -35,19 +35,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Check if survey is complete (100% progress) before running ML
-    const { data: surveyTarget, error: targetError } = await supabaseAdmin
+    // Check if survey is complete by counting actual completed/submitted responses
+    // against the target — avoids reading the stale survey_target.percentage column.
+    const { data: surveyTargetData, error: targetError } = await supabaseAdmin
       .from('survey_target')
-      .select('percentage')
+      .select('target')
       .eq('barangay_id', barangayId)
       .eq('survey_cycle_id', cycleId)
       .single();
 
     if (targetError && targetError.code !== 'PGRST116') {
-      console.error('Error checking survey progress:', targetError);
+      console.error('Error checking survey target:', targetError);
     }
 
-    const progress = surveyTarget?.percentage || 0;
+    // Live count of completed/submitted responses
+    const { count: actualCount } = await supabaseAdmin
+      .from('survey_response')
+      .select('*', { count: 'exact', head: true })
+      .eq('barangay_id', barangayId)
+      .eq('survey_cycle_id', cycleId)
+      .in('status', ['completed', 'submitted']);
+
+    const target = surveyTargetData?.target || 0;
+    const achieved = actualCount || 0;
+    const progress = target > 0 ? Math.min(100, Math.round((achieved / target) * 100)) : 0;
 
     // If survey is not complete, return a special response
     if (progress < 100) {
@@ -137,8 +148,50 @@ export async function GET(request: NextRequest) {
     );
 
     // Add cache metadata to response
+    const responseData = result.data;
+
+    // If the cached result has no service scores (stale empty result from before the
+    // local-fallback was added), force a fresh computation and discard this cache hit.
+    if (
+      result.cached &&
+      responseData &&
+      Object.keys(responseData.service_scores || {}).length === 0 &&
+      !forceRefresh
+    ) {
+      console.warn(`⚠️ [ML FUNNEL] Cached result has empty service_scores — forcing refresh`);
+      const freshResult = await getCachedOrCompute(
+        'ml-funnel-analysis',
+        { barangayId: parseInt(barangayId), cycleId: parseInt(cycleId) },
+        async () => {
+          let mlResults;
+          let mlApiUrl = process.env.ML_API_URL;
+          if (mlApiUrl) {
+            if (!mlApiUrl.startsWith('http://') && !mlApiUrl.startsWith('https://')) mlApiUrl = `https://${mlApiUrl}`;
+            mlApiUrl = mlApiUrl.replace(/\/$/, '');
+            try {
+              const r = await fetch(`${mlApiUrl}/api/analyze`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ barangay_id: parseInt(barangayId!), cycle_id: parseInt(cycleId!) })
+              });
+              mlResults = r.ok ? await r.json() : {};
+            } catch { mlResults = {}; }
+          } else {
+            mlResults = {};
+          }
+          return await transformMLToFunnelFormat(mlResults, parseInt(barangayId!), parseInt(cycleId!));
+        },
+        { ttl: 43200, staleWhileRevalidate: true, forceRefresh: true }
+      );
+      const response = {
+        ...freshResult.data,
+        _cache: { cached: false, stale: false, computedAt: freshResult.computedAt, expiresAt: freshResult.expiresAt }
+      };
+      return NextResponse.json(response);
+    }
+
     const response = {
-      ...result.data,
+      ...responseData,
       _cache: {
         cached: result.cached,
         stale: result.stale,
@@ -226,6 +279,83 @@ async function transformMLToFunnelFormat(mlResults: any, barangayId: number, cyc
       }
     });
   }
+
+  // ─── Local fallback when ML service returns no service scores ───────────────
+  // This happens when the Railway ML service has no data for this barangay/cycle
+  // or returns an empty payload. We compute scores directly from survey_section rows
+  // using the same TypeScript funnel-calculation logic used elsewhere in the app.
+  if (Object.keys(funnelData.service_scores).length === 0) {
+    console.warn(`⚠️ [ML FUNNEL] ML returned no service scores for barangay ${barangayId} / cycle ${cycleId} — falling back to local calculation`);
+
+    // Fetch all completed responses with their sections for this barangay/cycle
+    const { data: rawResponses } = await supabaseAdmin
+      .from('survey_response')
+      .select(`
+        response_id,
+        survey_section (section_key, data)
+      `)
+      .eq('barangay_id', barangayId)
+      .eq('survey_cycle_id', cycleId)
+      .in('status', ['completed', 'submitted']);
+
+    if (rawResponses && rawResponses.length > 0) {
+      funnelData.total_responses = rawResponses.length;
+
+      for (const serviceArea of serviceAreas) {
+        // Filter to responses that have a section for this service area
+        const responsesForArea = rawResponses.filter((r: any) => {
+          const sections = Array.isArray(r.survey_section) ? r.survey_section : [r.survey_section];
+          return sections.some((s: any) => s?.section_key === serviceArea);
+        });
+
+        if (responsesForArea.length === 0) continue;
+
+        const metrics = calculateServiceFunnelMetrics(responsesForArea, serviceArea);
+
+        const satisfactionPct = metrics.satisfaction.percentage ?? 0;
+        const needActionPct   = metrics.needForAction?.percentage ?? 0;
+        const awarenessPct    = metrics.awareness.percentage ?? 0;
+        const availmentPct    = metrics.availment.percentage ?? 0;
+        const sampleSize      = metrics.awareness.total;
+
+        funnelData.service_scores[serviceArea] = {
+          awareness:    awarenessPct,
+          availment:    availmentPct,
+          satisfaction: satisfactionPct,
+          need_action:  needActionPct,
+          sample_size:  sampleSize,
+          confidence:   sampleSize >= 5 ? 'high' : sampleSize >= 3 ? 'medium' : 'low',
+          bottleneck:   awarenessPct < availmentPct && awarenessPct < satisfactionPct
+                          ? 'awareness' : availmentPct < satisfactionPct
+                          ? 'availment' : 'satisfaction',
+          concerns:        [],
+          quotes:          {},
+          recommendations: {}
+        };
+
+        if (metrics.actionGrid) {
+          funnelData.action_grid[serviceArea] = {
+            quadrant:           metrics.actionGrid.quadrant,
+            satisfaction_score: satisfactionPct,
+            need_action_score:  needActionPct,
+            confidence:         sampleSize >= 5 ? 'high' : 'medium',
+            trend: { change: 0, direction: 'baseline', available: false }
+          };
+        } else {
+          funnelData.action_grid[serviceArea] = {
+            quadrant:           'INSUFFICIENT_DATA',
+            satisfaction_score: satisfactionPct,
+            need_action_score:  needActionPct,
+            confidence:         'low',
+            trend: { change: 0, direction: 'baseline', available: false }
+          };
+        }
+      }
+
+      console.log(`✅ [ML FUNNEL] Local fallback computed scores for ${Object.keys(funnelData.service_scores).length} service areas`);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Calculate overall satisfaction - prefer the "overall" section score if available
   // Otherwise fall back to averaging the 6 service areas
