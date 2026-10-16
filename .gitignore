@@ -52,3 +52,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .aider*
+
+# Local credentials file
+creds.txt

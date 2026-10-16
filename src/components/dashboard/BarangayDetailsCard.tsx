@@ -33,7 +33,7 @@ export default function BarangayDetailsCard({ selectedBarangay, isLocked = false
       try {
         const cycleId = selectedCycleId || activeCycle?.cycle_id;
         if (!cycleId) {
-          setSurveyProgress(selectedBarangay.progress || 0);
+          setSurveyProgress(Number(selectedBarangay.progress) || 0);
           return;
         }
 
@@ -47,16 +47,16 @@ export default function BarangayDetailsCard({ selectedBarangay, isLocked = false
           );
           
           if (currentBarangay) {
-            setSurveyProgress(currentBarangay.progress || currentBarangay.completion_rate || 0);
+            setSurveyProgress(Number(currentBarangay.progress ?? currentBarangay.completion_rate) || 0);
           } else {
-            setSurveyProgress(selectedBarangay.progress || 0);
+            setSurveyProgress(Number(selectedBarangay.progress) || 0);
           }
         } else {
-          setSurveyProgress(selectedBarangay.progress || 0);
+          setSurveyProgress(Number(selectedBarangay.progress) || 0);
         }
       } catch (error) {
         console.error('Error fetching progress:', error);
-        setSurveyProgress(selectedBarangay.progress || 0);
+        setSurveyProgress(Number(selectedBarangay.progress) || 0);
       } finally {
         setLoading(false);
       }

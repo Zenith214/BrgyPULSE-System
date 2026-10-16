@@ -60,9 +60,22 @@ export async function GET(request: NextRequest) {
           b.seal,
           b.seal_expiration_date,
           b.logo_url,
-          st.percentage
+          CASE
+            WHEN st.target > 0 THEN
+              LEAST(100, ROUND(
+                (COALESCE(rc.actual_count, 0)::decimal / st.target::decimal) * 100
+              ))
+            ELSE 0
+          END AS percentage
         FROM barangay b
         LEFT JOIN survey_target st ON b.barangay_id = st.barangay_id AND st.survey_cycle_id = $1
+        LEFT JOIN (
+          SELECT barangay_id, COUNT(*) AS actual_count
+          FROM survey_response
+          WHERE survey_cycle_id = $1
+            AND status IN ('completed', 'submitted')
+          GROUP BY barangay_id
+        ) rc ON b.barangay_id = rc.barangay_id
         WHERE b.is_active = true
         ORDER BY b.barangay_name ASC
       `;
@@ -80,9 +93,8 @@ export async function GET(request: NextRequest) {
           b.seal,
           b.seal_expiration_date,
           b.logo_url,
-          st.percentage
+          0 AS percentage
         FROM barangay b
-        LEFT JOIN survey_target st ON b.barangay_id = st.barangay_id
         WHERE b.is_active = true
         ORDER BY b.barangay_name ASC
       `;
@@ -152,7 +164,7 @@ export async function GET(request: NextRequest) {
 
     // Transform the data to match frontend expectations
     let transformedBarangays = barangays.map((barangay: any) => {
-      const progress = barangay.percentage || 0;
+      const progress = parseInt(barangay.percentage) || 0;
       
       let status = "Pending";
       if (progress === 100) {

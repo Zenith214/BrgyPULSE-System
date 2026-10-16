@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getActiveCycle } from '@/utils/surveyCycleHelpers';
 import jwt from 'jsonwebtoken';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
@@ -43,23 +49,44 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // Get survey targets for the active cycle (with target numbers)
-    const { data: targets, error: targetsError } = await supabaseAdmin
-      .from('survey_target')
-      .select('barangay_id, target, achieved')
-      .eq('survey_cycle_id', activeCycle.cycle_id);
+    // Get survey targets with LIVE response counts for the active cycle
+    // This avoids the stale-read problem where survey_target.achieved defaults to 0
+    let pgClient;
+    let targetMap: Map<number, { target: number; achieved: number }>;
+    try {
+      pgClient = await pool.connect();
+      const targetsResult = await pgClient.query(`
+        SELECT
+          st.barangay_id,
+          st.target,
+          COALESCE(rc.actual_count, 0) AS achieved
+        FROM survey_target st
+        LEFT JOIN (
+          SELECT barangay_id, COUNT(*) AS actual_count
+          FROM survey_response
+          WHERE survey_cycle_id = $1
+            AND status IN ('completed', 'submitted')
+          GROUP BY barangay_id
+        ) rc ON st.barangay_id = rc.barangay_id
+        WHERE st.survey_cycle_id = $1
+      `, [activeCycle.cycle_id]);
 
-    if (targetsError) {
-      console.error('Error fetching survey targets:', targetsError);
-      return NextResponse.json({ error: 'Failed to fetch survey targets', details: targetsError.message }, { status: 500 });
+      if (targetsResult.rows.length === 0) {
+        return NextResponse.json([]);
+      }
+
+      targetMap = new Map(targetsResult.rows.map((t: any) => [
+        t.barangay_id,
+        { target: t.target, achieved: parseInt(t.achieved) || 0 }
+      ]));
+    } catch (err) {
+      console.error('Error fetching survey targets (live count):', err);
+      return NextResponse.json({ error: 'Failed to fetch survey targets' }, { status: 500 });
+    } finally {
+      if (pgClient) pgClient.release();
     }
 
-    if (!targets || targets.length === 0) {
-      return NextResponse.json([]);
-    }
-
-    // Create a map of barangay targets for easy lookup
-    const targetMap = new Map(targets.map(t => [t.barangay_id, { target: t.target, achieved: t.achieved || 0 }]));
+    const targets = Array.from(targetMap.entries()).map(([barangay_id, t]) => ({ barangay_id, ...t }));
 
     // Get barangay details for the targets
     const barangayIds = targets.map(t => t.barangay_id);

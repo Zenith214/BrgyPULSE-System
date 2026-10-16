@@ -50,18 +50,30 @@ async function recalculateSurveyTargetProgress(client: any, barangayId: number, 
       SET 
         achieved = $1,
         percentage = CASE 
-          WHEN target > 0 THEN ROUND(($1::decimal / target::decimal) * 100)
+          WHEN target > 0 THEN LEAST(100, ROUND(($1::decimal / target::decimal) * 100))
           ELSE 0 
         END,
         updated_at = NOW()
       WHERE barangay_id = $2 AND survey_cycle_id = $3
     `;
-    await client.query(updateQuery, [actualCount, barangayId, cycleId]);
-    
-    console.log(`✅ Recalculated progress for barangay ${barangayId}: ${actualCount} responses`);
+    const updateResult = await client.query(updateQuery, [actualCount, barangayId, cycleId]);
+
+    if (updateResult.rowCount === 0) {
+      console.warn(
+        `⚠️ recalculateSurveyTargetProgress: no survey_target row found for ` +
+        `barangay_id=${barangayId}, cycle_id=${cycleId} — achieved/percentage not updated`
+      );
+    } else {
+      console.log(`✅ Recalculated progress for barangay ${barangayId}: ${actualCount} responses`);
+    }
   } catch (error) {
-    console.error('Error recalculating survey target progress:', error);
-    // Don't throw - this is a non-critical operation
+    // Log with full detail so the failure is visible in server logs.
+    // We still don't throw because the survey submission itself succeeded —
+    // the stored columns are a cache; the live COUNT queries are the source of truth.
+    console.error(
+      `❌ recalculateSurveyTargetProgress failed for barangay_id=${barangayId}, cycle_id=${cycleId}:`,
+      error
+    );
   }
 }
 

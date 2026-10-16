@@ -151,7 +151,6 @@ export async function GET(request: NextRequest) {
       LEFT JOIN barangay b ON sr.barangay_id = b.barangay_id
       WHERE sr.survey_cycle_id = $1 
         AND sr.status IN ('completed', 'submitted')
-        AND sr.progress = 100
       ORDER BY b.barangay_name
     `
     
@@ -223,11 +222,19 @@ export async function GET(request: NextRequest) {
     
     console.log('[Dashboard Summary] Survey targets:', surveyTargetsCount, 'Target per barangay:', targetPerBarangay, 'Total target:', targetResponses)
     
-    // Count barangays that have finished surveys (100% complete)
+    // Count barangays that have finished surveys (live count >= target)
     const finishedBarangaysQuery = `
-      SELECT COUNT(DISTINCT barangay_id) as finished_count
-      FROM survey_target
-      WHERE survey_cycle_id = $1 AND percentage = 100
+      SELECT COUNT(*) as finished_count
+      FROM survey_target st
+      WHERE st.survey_cycle_id = $1
+        AND st.target > 0
+        AND (
+          SELECT COUNT(*)
+          FROM survey_response sr
+          WHERE sr.barangay_id = st.barangay_id
+            AND sr.survey_cycle_id = st.survey_cycle_id
+            AND sr.status IN ('completed', 'submitted')
+        ) >= st.target
     `
     const finishedResult = await client.query(finishedBarangaysQuery, [activeCycleId])
     const finishedBarangays = parseInt(finishedResult.rows[0]?.finished_count || 0)
